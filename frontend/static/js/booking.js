@@ -431,9 +431,144 @@ function closeModal(modalId) {
 
 // Reschedule booking
 async function rescheduleBooking(bookingId) {
-    // For simplicity, redirect to booking page with context
-    showAlert('Rescheduling feature - select a new date and time', 'info');
-    closeModal('bookingsModal');
+    // Load the booking details and show reschedule form
+    try {
+        const response = await fetch(`/api/bookings/${bookingId}`);
+        if (!response.ok) {
+            showAlert('Failed to load booking details', 'danger');
+            return;
+        }
+        const booking = await response.json();
+        
+        // Store current booking info for reschedule
+        window._rescheduleBookingId = bookingId;
+        window._rescheduleBooking = booking;
+        
+        // Show reschedule modal with current booking details
+        const modal = document.getElementById('rescheduleModal');
+        const details = document.getElementById('rescheduleCurrentDetails');
+        
+        details.innerHTML = `
+            <div class="summary-row">
+                <span class="summary-label">Company</span>
+                <span class="summary-value">${booking.Company || 'N/A'}</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Current Date</span>
+                <span class="summary-value">${formatDisplayDate(booking.InterviewDate)}</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Current Time</span>
+                <span class="summary-value">${booking.StartTime} - ${booking.EndTime}</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Panel</span>
+                <span class="summary-value">${booking.AllocatedPanel || 'N/A'}</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Duration</span>
+                <span class="summary-value">${booking.Duration} min</span>
+            </div>
+        `;
+        
+        // Reset reschedule date/time
+        document.getElementById('rescheduleDate').value = '';
+        document.getElementById('rescheduleTime').value = '';
+        document.getElementById('rescheduleReason').value = '';
+        
+        // Set min date to today
+        const today = new Date();
+        document.getElementById('rescheduleDate').min = today.toISOString().split('T')[0];
+        
+        // Generate time slots for the new date
+        updateRescheduleTimeSlots();
+        
+        // Close current modal and show reschedule modal
+        closeModal('bookingsModal');
+        modal.classList.add('active');
+        
+    } catch (error) {
+        showAlert('Failed to load booking details', 'danger');
+        console.error('Error:', error);
+    }
+}
+
+function updateRescheduleTimeSlots() {
+    const timeSelect = document.getElementById('rescheduleTime');
+    const slots = generateTimeSlots();
+    
+    timeSelect.innerHTML = '<option value="">Select time...</option>';
+    slots.forEach(slot => {
+        const startTime = slot.split('-')[0];
+        const option = document.createElement('option');
+        option.value = startTime;
+        option.textContent = `${startTime} (${slot})`;
+        timeSelect.appendChild(option);
+    });
+}
+
+async function confirmReschedule() {
+    const newDate = document.getElementById('rescheduleDate').value;
+    const newTime = document.getElementById('rescheduleTime').value;
+    const reason = document.getElementById('rescheduleReason').value.trim();
+    const bookingId = window._rescheduleBookingId;
+    
+    if (!newDate) {
+        showAlert('Please select a new date', 'danger');
+        return;
+    }
+    if (!newTime) {
+        showAlert('Please select a new time', 'danger');
+        return;
+    }
+    
+    // Confirmation
+    const booking = window._rescheduleBooking;
+    const confirmMsg = `Are you sure you want to reschedule?\n\nCurrent: ${formatDisplayDate(booking.InterviewDate)} at ${booking.StartTime}\nNew: ${formatDisplayDate(newDate)} at ${newTime}`;
+    
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+    
+    showLoading();
+    
+    try {
+        const response = await fetch(`/api/bookings/${bookingId}/reschedule`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                booking_id: bookingId,
+                new_date: newDate,
+                new_time: newTime,
+                reason: reason || 'Student request'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showAlert('Booking rescheduled successfully!', 'success');
+            
+            let message = `Your interview has been rescheduled to ${formatDisplayDate(newDate)} at ${newTime}.`;
+            if (data.waitlist_promoted) {
+                message += ' A waiting list student has been promoted to your vacated slot.';
+            }
+            showAlert(message, 'info');
+            
+            closeModal('rescheduleModal');
+            // Refresh my bookings
+            showMyBookings();
+        } else {
+            showAlert(data.message || data.error || 'Reschedule failed', 'danger');
+        }
+    } catch (error) {
+        showAlert('Reschedule failed. Please try again.', 'danger');
+        console.error('Reschedule error:', error);
+    } finally {
+        hideLoading();
+    }
 }
 
 // Cancel booking

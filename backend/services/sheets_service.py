@@ -33,6 +33,7 @@ class SheetsService:
     CONFIG = 'CONFIG'
     AUDIT_LOG = 'AUDIT_LOG'
     WAITLIST = 'WAITLIST'
+    RESCHEDULE_HISTORY = 'RESCHEDULE_HISTORY'
     
     def __init__(self):
         self.spreadsheet_id = os.getenv('GOOGLE_SHEETS_SPREADSHEET_ID')
@@ -191,6 +192,10 @@ class SheetsService:
                 self.WAITLIST: [
                     ['WaitlistID', 'StudentID', 'StudentName', 'Company', 'PreferredDate', 
                      'PreferredTime', 'Duration', 'Status', 'CreatedAt', 'Notes']
+                ],
+                self.RESCHEDULE_HISTORY: [
+                    ['HistoryID', 'StudentName', 'Email', 'OldSlot', 'NewSlot', 
+                     'RescheduledBy', 'Timestamp']
                 ]
             }
             
@@ -591,6 +596,50 @@ class SheetsService:
             return entry
         
         return None
+    
+    # RESCHEDULE_HISTORY operations
+    def log_reschedule_history(self, history_data: Dict[str, Any]) -> str:
+        """Log a reschedule history entry."""
+        history_id = f"RH{int(time.time() * 1000)}"
+        timestamp = datetime.now().isoformat()
+        
+        row = [
+            history_id,
+            history_data.get('StudentName', ''),
+            history_data.get('Email', ''),
+            history_data.get('OldSlot', ''),
+            history_data.get('NewSlot', ''),
+            history_data.get('RescheduledBy', ''),
+            timestamp
+        ]
+        
+        self._append_sheet_values(self.RESCHEDULE_HISTORY, [row])
+        return history_id
+    
+    def get_reschedule_history(self, student_name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get reschedule history entries, optionally filtered by student name."""
+        values = self._get_sheet_values(self.RESCHEDULE_HISTORY)
+        if not values or len(values) < 2:
+            return []
+        
+        headers = values[0]
+        history = []
+        
+        for row in values[1:]:
+            if row and row[0]:
+                entry = {}
+                for i, header in enumerate(headers):
+                    entry[header] = row[i] if i < len(row) else ''
+                
+                if not student_name or entry.get('StudentName', '').upper() == student_name.upper():
+                    history.append(entry)
+                
+                if len(history) >= limit:
+                    break
+        
+        # Sort by timestamp descending
+        history.sort(key=lambda x: x.get('Timestamp', ''), reverse=True)
+        return history
 
 
 # Singleton instance

@@ -349,6 +349,49 @@
         </div>
     </div>
     
+    <!-- Admin Reschedule Modal -->
+    <div class="modal-overlay" id="adminRescheduleModal">
+        <div class="modal" style="max-width: 500px;">
+            <div class="modal-header">
+                <h4 class="modal-title">Admin Reschedule Interview</h4>
+                <button class="modal-close" onclick="closeModal('adminRescheduleModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Current Booking Details -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h5 style="font-size: 0.875rem; margin-bottom: 0.75rem;">Current Booking Details</h5>
+                        <div id="adminRescheduleCurrentDetails">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- New Slot Selection -->
+                <div class="form-group">
+                    <label class="form-label required">New Date</label>
+                    <input type="date" class="form-control" id="adminRescheduleDate" onchange="updateAdminRescheduleTimeSlots()">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label required">New Time</label>
+                    <select class="form-control" id="adminRescheduleTime">
+                        <option value="">Select time...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Reason (Optional)</label>
+                    <textarea class="form-control" id="adminRescheduleReason" placeholder="Reason for rescheduling" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('adminRescheduleModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="adminConfirmReschedule()">Confirm Reschedule</button>
+            </div>
+        </div>
+    </div>
+    
     <script src="/static/js/admin.js"></script>
 </body>
 </html>

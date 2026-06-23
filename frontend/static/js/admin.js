@@ -195,7 +195,8 @@ function renderAllBookings(bookings) {
         <td><span class="badge status-${(b.Status || '').toLowerCase()}">${b.Status || 'N/A'}</span></td>
         <td><div class="d-flex gap-1">
             <button class="btn btn-sm btn-outline" onclick="showBookingDetail('${b.BookingID}')" title="View">👁</button>
-            ${b.Status === 'BOOKED' ? `<button class="btn btn-sm btn-success" onclick="markCompleted('${b.BookingID}')" title="Complete">✓</button>
+            ${b.Status === 'BOOKED' ? `<button class="btn btn-sm btn-info" onclick="adminRescheduleBooking('${b.BookingID}')" title="Reschedule">↻</button>
+            <button class="btn btn-sm btn-success" onclick="markCompleted('${b.BookingID}')" title="Complete">✓</button>
             <button class="btn btn-sm btn-warning" onclick="markNoShow('${b.BookingID}')" title="No Show">!</button>
             <button class="btn btn-sm btn-danger" onclick="adminCancelBooking('${b.BookingID}')" title="Cancel">✗</button>` : ''}
         </div></td></tr>
@@ -275,5 +276,149 @@ async function loadAuditLog() {
 // Logout
 async function logout() { await fetch('/api/logout', { method: 'POST' }); window.location.href = '/admin/login'; }
 
-// Close modal on outside click
-document.addEventListener('click', function(e) { if (e.target.classList.contains('modal-overlay')) e.target.classList.remove('active'); });
+// Admin Reschedule
+async function adminRescheduleBooking(bookingId) {
+    try {
+        const response = await fetch(`/api/bookings/${bookingId}`);
+        if (!response.ok) {
+            showAlert('Failed to load booking details', 'danger');
+            return;
+        }
+        const booking = await response.json();
+        
+        // Store current booking info for reschedule
+        window._adminRescheduleBookingId = bookingId;
+        window._adminRescheduleBooking = booking;
+        
+        // Show reschedule modal with current booking details
+        const modal = document.getElementById('adminRescheduleModal');
+        const details = document.getElementById('adminRescheduleCurrentDetails');
+        
+        details.innerHTML = `
+            <div class="summary-row">
+                <span class="summary-label">Student</span>
+                <span class="summary-value">${booking.StudentName || 'N/A'}</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Company</span>
+                <span class="summary-value">${booking.Company || 'N/A'}</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Current Date</span>
+                <span class="summary-value">${formatDate(booking.InterviewDate)}</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Current Time</span>
+                <span class="summary-value">${booking.StartTime} - ${booking.EndTime}</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Panel</span>
+                <span class="summary-value">${booking.AllocatedPanel || 'N/A'}</span>
+            </div>
+            <div class="summary-row">
+                <span class="summary-label">Duration</span>
+                <span class="summary-value">${booking.Duration} min</span>
+            </div>
+        `;
+        
+        // Reset reschedule fields
+        document.getElementById('adminRescheduleDate').value = '';
+        document.getElementById('adminRescheduleTime').value = '';
+        document.getElementById('adminRescheduleReason').value = '';
+        
+        // Set min date to today
+        const today = new Date();
+        document.getElementById('adminRescheduleDate').min = today.toISOString().split('T')[0];
+        
+        // Generate time slots
+        updateAdminRescheduleTimeSlots();
+        
+        modal.classList.add('active');
+        
+    } catch (error) {
+        showAlert('Failed to load booking details', 'danger');
+        console.error('Error:', error);
+    }
+}
+
+function updateAdminRescheduleTimeSlots() {
+    const timeSelect = document.getElementById('adminRescheduleTime');
+    const slots = [];
+    for (let hour = 9; hour < 18; hour++) {
+        const h = String(hour).padStart(2, '0');
+        slots.push(`${h}:00`);
+        if (hour < 17) {
+            slots.push(`${h}:30`);
+        }
+    }
+    
+    timeSelect.innerHTML = '<option value="">Select time...</option>';
+    slots.forEach(time => {
+        const option = document.createElement('option');
+        option.value = time;
+        option.textContent = time;
+        timeSelect.appendChild(option);
+    });
+}
+
+async function adminConfirmReschedule() {
+    const newDate = document.getElementById('adminRescheduleDate').value;
+    const newTime = document.getElementById('adminRescheduleTime').value;
+    const reason = document.getElementById('adminRescheduleReason').value.trim();
+    const bookingId = window._adminRescheduleBookingId;
+    const booking = window._adminRescheduleBooking;
+    
+    if (!newDate) {
+        showAlert('Please select a new date', 'danger');
+        return;
+    }
+    if (!newTime) {
+        showAlert('Please select a new time', 'danger');
+        return;
+    }
+    
+    // Confirmation
+    const confirmMsg = `Reschedule this booking?\n\nStudent: ${booking.StudentName}\nCurrent: ${formatDate(booking.InterviewDate)} at ${booking.StartTime}\nNew: ${formatDate(newDate)} at ${newTime}`;
+    
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+    
+    showLoading();
+    
+    try {
+        const response = await fetch(`/api/admin/bookings/${bookingId}/reschedule`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                booking_id: bookingId,
+                new_date: newDate,
+                new_time: newTime,
+                reason: reason || 'Admin reschedule'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showAlert(`Booking rescheduled successfully! Student will see updated details immediately.`, 'success');
+            
+            if (data.waitlist_promoted) {
+                showAlert('A waiting list student has been promoted to the vacated slot.', 'info');
+            }
+            
+            closeModal('adminRescheduleModal');
+            loadAllBookings();
+            loadDashboardData();
+        } else {
+            showAlert(data.message || 'Reschedule failed', 'danger');
+        }
+    } catch (error) {
+        showAlert('Reschedule failed', 'danger');
+        console.error('Error:', error);
+    } finally {
+        hideLoading();
+    }
+}

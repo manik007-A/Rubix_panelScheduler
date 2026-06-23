@@ -426,7 +426,8 @@ async def get_my_bookings(
     if user.get('user_type') != 'student':
         raise HTTPException(status_code=403, detail="Students only")
     
-    student_id = user.get('data', {}).get('student_id')
+    # student_id is stored as user_id at the session level (from auth_service)
+    student_id = user.get('user_id') or user.get('data', {}).get('student_id')
     if not student_id:
         raise HTTPException(status_code=400, detail="Student ID not found in session")
     
@@ -453,7 +454,7 @@ async def get_booking(
     
     # Students can only view their own bookings
     if user.get('user_type') == 'student':
-        student_id = user.get('data', {}).get('student_id')
+        student_id = user.get('user_id') or user.get('data', {}).get('student_id')
         if booking.get('StudentID') != student_id:
             raise HTTPException(status_code=403, detail="Access denied")
     
@@ -476,7 +477,7 @@ async def reschedule_booking(
     
     # Students can only reschedule their own bookings
     if user.get('user_type') == 'student':
-        student_id = user.get('data', {}).get('student_id')
+        student_id = user.get('user_id') or user.get('data', {}).get('student_id')
         if booking.get('StudentID') != student_id:
             raise HTTPException(status_code=403, detail="Access denied")
     
@@ -521,7 +522,7 @@ async def cancel_booking(
     
     # Students can only cancel their own bookings
     if user.get('user_type') == 'student':
-        student_id = user.get('data', {}).get('student_id')
+        student_id = user.get('user_id') or user.get('data', {}).get('student_id')
         if booking.get('StudentID') != student_id:
             raise HTTPException(status_code=403, detail="Access denied")
     
@@ -738,6 +739,55 @@ async def move_booking(
         status_code=400,
         content=result
     )
+
+
+@app.post("/api/admin/bookings/{booking_id}/reschedule")
+async def admin_reschedule_booking(
+    booking_id: str,
+    reschedule: RescheduleRequest,
+    user: Dict = Depends(require_admin),
+    reschedule_engine: RescheduleEngine = Depends(get_reschedule)
+):
+    """Admin reschedule any student's interview."""
+    booking = reschedule_engine._sheets.get_booking_by_id(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    # Check if booking can be rescheduled
+    can_reschedule, reason = reschedule_engine.can_reschedule(booking_id)
+    if not can_reschedule:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": reason}
+        )
+    
+    result = reschedule_engine.admin_reschedule_booking(
+        booking_id=booking_id,
+        new_date=reschedule.new_date,
+        new_time=reschedule.new_time,
+        new_panel=None,
+        reason=reschedule.reason
+    )
+    
+    if result.get('success'):
+        return JSONResponse(content=result)
+    
+    return JSONResponse(
+        status_code=400,
+        content=result
+    )
+
+
+@app.get("/api/admin/reschedule-history")
+async def get_reschedule_history(
+    student_name: str = None,
+    limit: int = 100,
+    user: Dict = Depends(require_admin),
+    reschedule_engine: RescheduleEngine = Depends(get_reschedule)
+):
+    """Get reschedule history."""
+    history = reschedule_engine.get_reschedule_history(student_name, limit)
+    return {"history": history}
 
 
 @app.post("/api/admin/bookings/{booking_id}/complete")
